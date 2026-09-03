@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Application scoring</title>
+<style>
+  :root {
+    --ink: #14161a; --muted: #6b7280; --line: #e3e5e9;
+    --bg: #fafafa; --card: #ffffff;
+    --ok: #1baf7a; --no: #e34948; --accent: #2a78d6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 16px; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 20px; margin-bottom: 16px;
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input, select {
+    width: 100%; padding: 8px 10px; font: inherit; color: var(--ink);
+    border: 1px solid var(--line); border-radius: 6px; background: #fff;
+  }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button {
+    margin-top: 18px; padding: 10px 22px; font: inherit; font-weight: 600;
+    color: #fff; background: var(--accent); border: 0; border-radius: 6px; cursor: pointer;
+  }
+  .verdict { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+  .verdict b { font-size: 24px; }
+  .ok { color: var(--ok); } .no { color: var(--no); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .bar { height: 6px; background: var(--accent); border-radius: 3px; }
+  .foot { color: var(--muted); font-size: 12px; margin-top: 20px; }
+  .policy {
+    margin-top: 14px; padding: 12px 14px; font-size: 13px;
+    background: #fdf2f2; border: 1px solid #f3d4d4; border-radius: 8px;
+  }
+  .policy ul { margin: 6px 0; padding-left: 20px; }
+  .policy li { margin: 2px 0; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Credit application scoring</h1>
+  <div class="sub" id="meta">loading the scorecard...</div>
+
+  <div class="card" id="result" hidden></div>
+
+  <form class="card" id="form">
+    <h2>Application form</h2>
+    <div class="grid">
+      <div><label>Monthly income</label>
+        <input name="income" type="number" step="any" min="1" value="180000" required></div>
+      <div><label>Loan amount</label>
+        <input name="credit" type="number" step="any" min="1" value="600000" required></div>
+      <div><label>Goods price</label>
+        <input name="goods_price" type="number" step="any" min="1" value="540000" required></div>
+      <div><label>Monthly payment</label>
+        <input name="annuity" type="number" step="any" min="1" value="27000" required></div>
+      <div><label>Years at current job (blank if not working)</label>
+        <input name="years_employed" type="number" step="any" min="0" value="5"></div>
+      <div><label>Active credits right now</label>
+        <input name="n_active_credits" type="number" step="1" min="0" value="1"></div>
+      <div><label>Outstanding balance on them (blank if no history)</label>
+        <input name="current_debt" type="number" step="any" min="0" value="200000"></div>
+      <div><label>First credit taken, years ago (blank if never)</label>
+        <input name="years_since_first_credit" type="number" step="any" min="0" value="6"></div>
+      <div id="selects" class="contents"></div>
+    </div>
+    <button type="submit">Score</button>
+  </form>
+
+  <div class="foot">
+    A study model on Home Credit Default Risk data. Not a credit offer.
+    LGD is an assumption, it is absent from the data.
+    Scoring runs entirely in the browser, nothing is sent anywhere.
+  </div>
+
+</div>
+
+<script>
+// ---------- scorecard ----------
+
+let CARD = null;
+
+const LABELS = {
+  CODE_GENDER: 'Gender', NAME_FAMILY_STATUS: 'Family status',
+  FLAG_OWN_REALTY: 'Owns property', FLAG_OWN_CAR: 'Owns a car',
+  OCCUPATION_TYPE: 'Occupation', NAME_INCOME_TYPE: 'Income type',
+  DAYS_EMPLOYED: 'Employment tenure', AMT_INCOME_TOTAL: 'Income',
+  AMT_CREDIT: 'Loan amount', AMT_GOODS_PRICE: 'Goods price',
+  AMT_ANNUITY: 'Monthly payment', N_ACTIVE_CREDITS: 'Active credits',
+  CURRENT_DEBT: 'Current debt', FIRST_CREDIT_DAYS: 'First credit taken',
+  DTI: 'Debt burden', TERM_MONTHS: 'Term, months', OVERPAY: 'Markup',
+};
+
+const CATEGORICAL = ['CODE_GENDER', 'NAME_FAMILY_STATUS', 'FLAG_OWN_REALTY',
+                     'FLAG_OWN_CAR', 'OCCUPATION_TYPE', 'NAME_INCOME_TYPE'];
+
+const FIELD = {
+  CODE_GENDER: 'gender', NAME_FAMILY_STATUS: 'family_status',
+  FLAG_OWN_REALTY: 'own_realty', FLAG_OWN_CAR: 'own_car',
+  OCCUPATION_TYPE: 'occupation', NAME_INCOME_TYPE: 'income_type',
+};
+
+const POLICY = {
+  MAX_DTI: 50, MAX_LTI: 10, MIN_INCOME: 20000,
+  MIN_TERM_MONTHS: 8, MAX_TERM_MONTHS: 48, MAX_ACTIVE_CREDITS: 10,
+};
+
+// index of the bin a value falls into; mirrors np.searchsorted(side='right')
+function binIndex(edges, value) {
+  let lo = 0, hi = edges.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (value < edges[mid]) hi = mid; else lo = mid + 1;
+  }
+  return lo;
+}
+
+function woeOf(rule, value) {
+  if (value === null || value === undefined || Number.isNaN(value)) return rule.missing_woe;
+  if (rule.kind === 'numeric') return rule.woe[binIndex(rule.edges, value)];
+  const key = String(value);
+  return key in rule.woe ? rule.woe[key] : rule.unseen_woe;
+}
+
+function factorOffset() {
+  const { pdo, base_score, base_odds } = CARD.points;
+  const factor = pdo / Math.log(2);
+  return { factor, offset: base_score - factor * Math.log(base_odds) };
+}
+
+function score(row) {
+  const { factor, offset } = factorOffset();
+  const n = CARD.features.length;
+  const base = offset / n - factor * CARD.intercept / n;
+
+  let logit = CARD.intercept;
+  const points = {}, lost = [];
+
+  for (const f of CARD.features) {
+    const w = woeOf(CARD.spec[f], row[f]);
+    logit += CARD.coef[f] * w;
+    points[f] = base - factor * CARD.coef[f] * w;
+
+    const meanWoe = (CARD.meta.mean_woe || {})[f] || 0;
+    const reference = base - factor * CARD.coef[f] * meanWoe;
+    lost.push({ feature: f, lost: reference - points[f] });
+  }
+
+  const pd = 1 / (1 + Math.exp(-logit));
+  const total = Object.values(points).reduce((a, b) => a + b, 0);
+  lost.sort((a, b) => b.lost - a.lost);
+
+  return { pd, score: Math.round(total), reasons: lost.filter(r => r.lost > 0.05) };
+}
+
+function checkPolicy(row) {
+  const v = [];
+  const income = row.AMT_INCOME_TOTAL || 0;
+  const credit = row.AMT_CREDIT || 0;
+  const annuity = row.AMT_ANNUITY || 0;
+
+  for (const [key, text] of [['AMT_CREDIT', 'loan amount must be greater than zero'],
+                             ['AMT_ANNUITY', 'monthly payment must be greater than zero'],
+                             ['AMT_GOODS_PRICE', 'goods price must be greater than zero']]) {
+    if (!(row[key] > 0)) v.push(text);
+  }
+  if (v.length) return v;
+
+  if (income < POLICY.MIN_INCOME)
+    v.push(`income below the minimum of ${POLICY.MIN_INCOME.toLocaleString('en-US')}`);
+  if (income > 0 && annuity >= income)
+    v.push('monthly payment is not below monthly income');
+  if (income > 0) {
+    const dti = annuity / income * 100;
+    if (dti > POLICY.MAX_DTI)
+      v.push(`debt burden ${dti.toFixed(0)}% exceeds the ${POLICY.MAX_DTI}% limit`);
+    const lti = credit / (income * 12);
+    if (lti > POLICY.MAX_LTI)
+      v.push(`loan amount exceeds annual income ${lti.toFixed(1)} times, limit is ${POLICY.MAX_LTI}`);
+  }
+  if (row.N_ACTIVE_CREDITS > POLICY.MAX_ACTIVE_CREDITS)
+    v.push(`${row.N_ACTIVE_CREDITS} active credits, the limit is ${POLICY.MAX_ACTIVE_CREDITS}`);
+  if (annuity > 0) {
+    const term = credit / annuity;
+    if (term > POLICY.MAX_TERM_MONTHS)
+      v.push(`term of ${term.toFixed(0)} months exceeds the ${POLICY.MAX_TERM_MONTHS} limit`);
+    else if (term < POLICY.MIN_TERM_MONTHS)
+      v.push(`term of ${term.toFixed(0)} months is below the minimum of ${POLICY.MIN_TERM_MONTHS}`);
+  }
+  return v;
+}
+
+// ---------- form ----------
+
+function num(form, name) {
+  const raw = form.elements[name].value.trim();
+  return raw === '' ? null : Number(raw);
+}
+
+function buildRow(form) {
+  const income = num(form, 'income');
+  const credit = num(form, 'credit');
+  const goods = num(form, 'goods_price');
+  const annuity = num(form, 'annuity');
+  const years = num(form, 'years_employed');
+  const firstCredit = num(form, 'years_since_first_credit');
+
+  const row = {
+    CODE_GENDER: form.elements.gender.value,
+    NAME_FAMILY_STATUS: form.elements.family_status.value,
+    FLAG_OWN_REALTY: form.elements.own_realty.value,
+    FLAG_OWN_CAR: form.elements.own_car.value,
+    OCCUPATION_TYPE: form.elements.occupation.value,
+    NAME_INCOME_TYPE: form.elements.income_type.value,
+    DAYS_EMPLOYED: years === null ? null : -years * 365.25,
+    AMT_INCOME_TOTAL: income,
+    AMT_CREDIT: credit,
+    AMT_GOODS_PRICE: goods,
+    AMT_ANNUITY: annuity,
+    N_ACTIVE_CREDITS: num(form, 'n_active_credits'),
+    CURRENT_DEBT: num(form, 'current_debt'),
+    FIRST_CREDIT_DAYS: firstCredit === null ? null : -firstCredit * 365.25,
+  };
+  row.DTI = income ? annuity / income * 100 : null;
+  row.TERM_MONTHS = annuity ? credit / annuity : null;
+  row.OVERPAY = goods ? (credit - goods) / goods : null;
+  return row;
+}
+
+function render(row) {
+  const violations = checkPolicy(row);
+  const s = score(row);
+  const threshold = CARD.meta.threshold;
+  const approved = violations.length === 0 && s.pd < threshold;
+  const maxLost = Math.max(...s.reasons.map(r => r.lost), 1);
+
+  const derived = [];
+  if (row.DTI !== null) derived.push(`debt burden ${row.DTI.toFixed(1)}%`);
+  if (row.TERM_MONTHS !== null) derived.push(`term ${row.TERM_MONTHS.toFixed(0)} months`);
+  if (row.OVERPAY !== null) derived.push(`markup ${(row.OVERPAY * 100).toFixed(1)}%`);
+
+  const by = violations.length ? 'policy' : (approved ? '' : 'scorecard');
+
+  document.getElementById('result').innerHTML = `
+    <div class="verdict">
+      <b class="${approved ? 'ok' : 'no'}">${approved ? 'Approved' : 'Declined'}</b>
+      <span>probability of default <b>${(s.pd * 100).toFixed(1)}%</b></span>
+      <span>score <b>${s.score}</b></span>
+      <span class="sub">threshold ${(threshold * 100).toFixed(1)}%</span>
+      ${by ? `<span class="sub">by ${by}</span>` : ''}
+    </div>
+    ${violations.length ? `
+    <div class="policy">
+      <b>Policy rules violated</b>
+      <ul>${violations.map(t => `<li>${t}</li>`).join('')}</ul>
+      Such applications are cut off before the model: it is trained on granted
+      loans and does not extrapolate beyond that range.
+    </div>` : ''}
+    <h2 style="margin-top:18px">Where points are lost</h2>
+    <table>
+      <tr><th>feature</th><th style="width:45%">worse than the typical applicant by</th><th>points</th></tr>
+      ${s.reasons.map(r => `
+        <tr>
+          <td>${LABELS[r.feature] || r.feature}</td>
+          <td><div class="bar" style="width:${Math.round(r.lost / maxLost * 100)}%"></div></td>
+          <td class="num">${r.lost.toFixed(1)}</td>
+        </tr>`).join('')}
+    </table>
+    ${derived.length ? `<div class="foot">Derived: ${derived.join(', ')}</div>` : ''}`;
+  document.getElementById('result').hidden = false;
+}
+
+// ---------- start ----------
+
+fetch('scorecard.json').then(r => r.json()).then(card => {
+  CARD = card;
+  const m = card.meta;
+  document.getElementById('meta').textContent =
+    `WOE scorecard, Gini ${m.metrics.gini}, approval threshold PD < ${m.threshold}` +
+    ` (LGD ${m.lgd}, margin ${m.margin})`;
+
+  const box = document.getElementById('selects');
+  box.style.display = 'contents';
+  for (const f of CATEGORICAL) {
+    if (!card.spec[f]) continue;
+    const options = Object.keys(card.spec[f].woe).sort();
+    box.insertAdjacentHTML('beforeend', `
+      <div>
+        <label>${LABELS[f]}</label>
+        <select name="${FIELD[f]}">
+          ${options.map(o => `<option value="${o}">${o}</option>`).join('')}
+        </select>
+      </div>`);
+  }
+
+  document.getElementById('form').addEventListener('submit', e => {
+    e.preventDefault();
+    render(buildRow(e.target));
+  });
+}).catch(err => {
+  document.getElementById('meta').textContent = 'failed to load scorecard.json: ' + err;
+});
+
+// English validation messages instead of the browser locale ones
+const MESSAGES = {
+  valueMissing: () => 'This field is required',
+  badInput: () => 'Enter a number',
+  rangeUnderflow: (el) => `Value must be ${el.min} or more`,
+  stepMismatch: () => 'Enter a whole number',
+};
+for (const el of document.querySelectorAll('input')) {
+  el.addEventListener('invalid', () => {
+    for (const key of ['valueMissing', 'badInput', 'rangeUnderflow', 'stepMismatch']) {
+      if (el.validity[key]) { el.setCustomValidity(MESSAGES[key](el)); return; }
+    }
+    el.setCustomValidity('');
+  });
+  el.addEventListener('input', () => el.setCustomValidity(''));
+}
+</script>
+</body>
+</html>
