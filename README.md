@@ -313,6 +313,22 @@ GET  /api/limits    policy limits
 GET  /api/health    status, threshold, Gini
 ```
 
+## Static build
+
+`static/` holds the same scorecard ported to JavaScript: the model is the 12 KB
+`scorecard.json`, and scoring is a lookup over cut points plus arithmetic, so it
+runs entirely in the browser with no backend.
+
+Verified against the Python model on four cases: probability, score, policy
+violations and the reason ordering agree to 1e-9.
+
+```bash
+python -m http.server 8010 --directory static
+```
+
+Deployed as a Hugging Face static Space; the FastAPI service in `app/` stays the
+reference implementation.
+
 ## Layout
 
 ```
@@ -326,6 +342,8 @@ scripts/train.py training and artifact export
 app/main.py      FastAPI: form and API
 notebooks/       exploration, EDA, the reasoning behind the decisions
 artifacts/       scorecard.json - cut points, WOE, coefficients, threshold
+static/          browser-only build: the same scorecard ported to JavaScript
+Dockerfile       serving image, requirements-serve.txt only
 ```
 
 `scorecard.json` is 12 KB and holds the model in full. Inference is a lookup
@@ -334,3 +352,7 @@ over cut points plus arithmetic.
 The notebook and the pipeline differ slightly in their numbers: the notebook
 drops the six rows with junk categories while the pipeline maps them to `NaN`.
 The user interface is in Russian, the code and documentation are in English.
+
+## License
+
+BSD 2-Clause. See `LICENSE`.

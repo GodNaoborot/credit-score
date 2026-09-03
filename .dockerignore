@@ -1,0 +1,11 @@
+datasets/
+processed/
+notebooks/
+scripts/
+.git/
+.claude/
+.venv/
+__pycache__/
+*.pyc
+README.md
+requirements.txt
