@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Скоринг заявки</title>
+<title>Application scoring</title>
 <style>
   :root {
     --ink: #14161a; --muted: #6b7280; --line: #e3e5e9;
@@ -54,43 +54,43 @@
 <body>
 <div class="wrap">
 
-  <h1>Скоринг кредитной заявки</h1>
+  <h1>Credit application scoring</h1>
   <div class="sub">
-    WOE-скоркарта, Gini {{ meta.get('metrics', {}).get('gini', '-') }},
-    порог одобрения PD &lt; {{ meta.get('threshold', '-') }}
-    (LGD {{ meta.get('lgd', '-') }}, маржа {{ meta.get('margin', '-') }})
+    WOE scorecard, Gini {{ meta.get('metrics', {}).get('gini', '-') }},
+    approval threshold PD &lt; {{ meta.get('threshold', '-') }}
+    (LGD {{ meta.get('lgd', '-') }}, margin {{ meta.get('margin', '-') }})
   </div>
 
   {% if result %}
   <div class="card">
     <div class="verdict">
       {% if result.approved %}
-        <b class="ok">Одобрено</b>
+        <b class="ok">Approved</b>
       {% else %}
-        <b class="no">Отказано</b>
+        <b class="no">Declined</b>
       {% endif %}
-      <span>вероятность дефолта <b>{{ '%.1f'|format(result.pd * 100) }}%</b></span>
-      <span>балл <b>{{ result.score }}</b></span>
-      <span class="sub">порог {{ '%.1f'|format(result.threshold * 100) }}%</span>
+      <span>probability of default <b>{{ '%.1f'|format(result.pd * 100) }}%</b></span>
+      <span>score <b>{{ result.score }}</b></span>
+      <span class="sub">threshold {{ '%.1f'|format(result.threshold * 100) }}%</span>
       {% if result.refused_by %}
-      <span class="sub">по {{ 'политике' if result.refused_by == 'policy' else 'скорингу' }}</span>
+      <span class="sub">by {{ 'policy' if result.refused_by == 'policy' else 'scorecard' }}</span>
       {% endif %}
     </div>
 
     {% if result.violations %}
     <div class="policy">
-      <b>Нарушены правила политики</b>
+      <b>Policy rules violated</b>
       <ul>
         {% for v in result.violations %}<li>{{ v.text }}</li>{% endfor %}
       </ul>
-      Такие заявки отсекаются до модели: она обучена на выданных кредитах и за
-      пределами этого диапазона не экстраполирует.
+      Such applications are cut off before the model: it is trained on granted
+      loans and does not extrapolate beyond that range.
     </div>
     {% endif %}
 
-    <h2 style="margin-top:18px">Где теряются баллы</h2>
+    <h2 style="margin-top:18px">Where points are lost</h2>
     <table>
-      <tr><th>признак</th><th style="width:45%">хуже типичного заявителя на</th><th>баллов</th></tr>
+      <tr><th>feature</th><th style="width:45%">worse than the typical applicant by</th><th>points</th></tr>
       {% for r in result.reasons %}
       <tr>
         <td>{{ r.label }}</td>
@@ -100,54 +100,54 @@
       {% endfor %}
     </table>
     {% if result.derived %}
-    <div class="foot">Производные: {{ result.derived | join(', ') }}</div>
+    <div class="foot">Derived: {{ result.derived | join(', ') }}</div>
     {% endif %}
   </div>
   {% endif %}
 
   <form method="post" class="card">
-    <h2>Анкета</h2>
+    <h2>Application form</h2>
     <div class="grid">
       <div>
-        <label>Доход, ₽/мес</label>
+        <label>Monthly income</label>
         <input name="income" type="number" step="any" min="1" required
-               value="{{ form.income if form else 180000 }}">
+               value="{% set v = form.income if form else 180000 %}{{ '' if v is none else v }}">
       </div>
       <div>
-        <label>Сумма кредита, ₽</label>
+        <label>Loan amount</label>
         <input name="credit" type="number" step="any" min="1" required
-               value="{{ form.credit if form else 600000 }}">
+               value="{% set v = form.credit if form else 600000 %}{{ '' if v is none else v }}">
       </div>
       <div>
-        <label>Цена товара, ₽</label>
+        <label>Goods price</label>
         <input name="goods_price" type="number" step="any" min="1" required
-               value="{{ form.goods_price if form else 540000 }}">
+               value="{% set v = form.goods_price if form else 540000 %}{{ '' if v is none else v }}">
       </div>
       <div>
-        <label>Ежемесячный платёж, ₽</label>
+        <label>Monthly payment</label>
         <input name="annuity" type="number" step="any" min="1" required
-               value="{{ form.annuity if form else 27000 }}">
+               value="{% set v = form.annuity if form else 27000 %}{{ '' if v is none else v }}">
       </div>
       <div>
-        <label>Стаж на текущем месте, лет (пусто - не работаю)</label>
+        <label>Years at current job (blank if not working)</label>
         <input name="years_employed" type="number" step="any" min="0"
-               value="{{ form.years_employed if form and form.years_employed is not none else 5 }}">
+               value="{% set v = form.years_employed if form else 5 %}{{ '' if v is none else v }}">
       </div>
 
       <div>
-        <label>Активных кредитов сейчас</label>
+        <label>Active credits right now</label>
         <input name="n_active_credits" type="number" step="1" min="0"
-               value="{{ form.n_active_credits if form else 1 }}">
+               value="{% set v = form.n_active_credits if form else 1 %}{{ '' if v is none else v }}">
       </div>
       <div>
-        <label>Текущий долг по ним, ₽ (пусто - нет истории)</label>
+        <label>Outstanding balance on them (blank if no history)</label>
         <input name="current_debt" type="number" step="any" min="0"
-               value="{{ form.current_debt if form and form.current_debt is not none else 200000 }}">
+               value="{% set v = form.current_debt if form else 200000 %}{{ '' if v is none else v }}">
       </div>
       <div>
-        <label>Первый кредит взят, лет назад (пусто - не брал)</label>
+        <label>First credit taken, years ago (blank if never)</label>
         <input name="years_since_first_credit" type="number" step="any" min="0"
-               value="{{ form.years_since_first_credit if form and form.years_since_first_credit is not none else 6 }}">
+               value="{% set v = form.years_since_first_credit if form else 6 %}{{ '' if v is none else v }}">
       </div>
 
       {% for field in categorical %}
@@ -162,14 +162,40 @@
       </div>
       {% endfor %}
     </div>
-    <button type="submit">Рассчитать</button>
+    <button type="submit">Score</button>
   </form>
 
   <div class="foot">
-    Учебная модель на данных Home Credit Default Risk. Не является кредитным
-    предложением. LGD принята как допущение, в данных отсутствует.
+    A study model on Home Credit Default Risk data. Not a credit offer.
+    LGD is an assumption, it is absent from the data.
   </div>
 
 </div>
+
+<script>
+  const MESSAGES = {
+    valueMissing: 'This field is required',
+    badInput: 'Enter a number',
+    rangeUnderflow: (el) => `Value must be ${el.min} or more`,
+    stepMismatch: 'Enter a whole number',
+  };
+
+  for (const el of document.querySelectorAll('input')) {
+    const show = () => {
+      let text = '';
+      for (const key of ['valueMissing', 'badInput', 'rangeUnderflow', 'stepMismatch']) {
+        if (el.validity[key]) {
+          const m = MESSAGES[key];
+          text = typeof m === 'function' ? m(el) : m;
+          break;
+        }
+      }
+      el.setCustomValidity(text);
+    };
+    el.addEventListener('invalid', show);
+    el.addEventListener('input', () => el.setCustomValidity(''));
+  }
+</script>
+
 </body>
 </html>

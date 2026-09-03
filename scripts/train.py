@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Обучение скоркарты.
+"""Scorecard training.
 
     python scripts/train.py
     python scripts/train.py --binning quantile --lgd 0.6
@@ -42,19 +42,19 @@ def main():
     ap.add_argument('--lgd', type=float, default=cfg.LGD)
     ap.add_argument('--out', type=Path, default=cfg.ARTIFACT_DIR / 'scorecard.json')
     ap.add_argument('--calibrate', action='store_true',
-                    help='изотоническая калибровка на отдельной выборке')
+                    help='isotonic calibration on a held-out sample')
     args = ap.parse_args()
 
-    print('готовим данные...')
+    print('preparing data...')
     X_train, X_calib, X_valid, y_train, y_calib, y_valid, keep = data.prepare(
         calib=args.calibrate)
     features = data.feature_list()
     categorical = [c for c in cfg.CATEGORICAL if c in features]
     calib_shape = X_calib.shape if args.calibrate else '-'
     print(f'  train {X_train.shape}  calib {calib_shape}  valid {X_valid.shape}'
-          f'  признаков {len(features)}')
+          f'  features {len(features)}')
 
-    print(f'обучаем, биннинг {args.binning}...')
+    print(f'fitting, binning {args.binning}...')
     card = scorecard.fit(X_train, y_train, features, categorical, args.binning)
 
     raw = scorecard.raw_proba_batch(card, X_valid)
@@ -90,18 +90,19 @@ def main():
 
     path = card.save(args.out)
 
-    print('\nметрики на valid:')
+    print('\nmetrics on valid:')
     for k, v in metrics.items():
-        print(f'  {k:20s} {v}')
-    print(f'\nмаржа {margin:.4f}  LGD {args.lgd}  порог {threshold:.4f}')
+        suffix = f'   uncalibrated {metrics_raw[k]}' if args.calibrate else ''
+        print(f'  {k:20s} {v}{suffix}')
+    print(f'\nmargin {margin:.4f}  LGD {args.lgd}  threshold {threshold:.4f}')
     if odd:
-        print(f'выбились из знака: {odd}')
-    print(f'\nсохранено: {path}  ({path.stat().st_size / 1024:.0f} КБ)')
+        print(f'wrong sign: {odd}')
+    print(f'\nsaved: {path}  ({path.stat().st_size / 1024:.0f} KB)')
 
-    # проверка: построчный инференс должен совпасть с батчевым
+    # check: row-wise inference must match the batch path
     row = X_valid.iloc[0].to_dict()
-    assert abs(card.predict_proba(row) - proba[0]) < 1e-9, 'построчный инференс разошёлся'
-    print('построчный инференс сходится с батчевым')
+    assert abs(card.predict_proba(row) - proba[0]) < 1e-9, 'row-wise inference diverged'
+    print('row-wise inference matches the batch path')
 
 
 if __name__ == '__main__':

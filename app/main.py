@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Сервис скоринга.
+"""Scoring service.
 
     uvicorn app.main:app --reload
 
-Модель загружается из artifacts/scorecard.json.
+The model is loaded from artifacts/scorecard.json. Inference needs neither
+sklearn nor pandas, only cut points, WOE and coefficients.
 """
 import sys
 from pathlib import Path
@@ -25,28 +26,28 @@ templates = Jinja2Templates(directory=str(BASE_DIR / 'templates'))
 CARD = Scorecard.load(cfg.ARTIFACT_DIR / 'scorecard.json')
 
 LABELS = {
-    'CODE_GENDER': 'Пол',
-    'NAME_FAMILY_STATUS': 'Семейное положение',
-    'FLAG_OWN_REALTY': 'Есть жильё в собственности',
-    'FLAG_OWN_CAR': 'Есть автомобиль',
-    'OCCUPATION_TYPE': 'Профессия',
-    'NAME_INCOME_TYPE': 'Источник дохода',
-    'DAYS_EMPLOYED': 'Стаж на текущем месте',
-    'AMT_INCOME_TOTAL': 'Доход',
-    'AMT_CREDIT': 'Сумма кредита',
-    'AMT_GOODS_PRICE': 'Цена товара',
-    'AMT_ANNUITY': 'Ежемесячный платёж',
-    'N_ACTIVE_CREDITS': 'Активных кредитов',
-    'CURRENT_DEBT': 'Текущий долг',
-    'FIRST_CREDIT_DAYS': 'Давность первого кредита',
-    'DTI': 'Долговая нагрузка',
-    'TERM_MONTHS': 'Срок, месяцев',
-    'OVERPAY': 'Наценка',
+    'CODE_GENDER': 'Gender',
+    'NAME_FAMILY_STATUS': 'Family status',
+    'FLAG_OWN_REALTY': 'Owns property',
+    'FLAG_OWN_CAR': 'Owns a car',
+    'OCCUPATION_TYPE': 'Occupation',
+    'NAME_INCOME_TYPE': 'Income type',
+    'DAYS_EMPLOYED': 'Employment tenure',
+    'AMT_INCOME_TOTAL': 'Income',
+    'AMT_CREDIT': 'Loan amount',
+    'AMT_GOODS_PRICE': 'Goods price',
+    'AMT_ANNUITY': 'Monthly payment',
+    'N_ACTIVE_CREDITS': 'Active credits',
+    'CURRENT_DEBT': 'Current debt',
+    'FIRST_CREDIT_DAYS': 'First credit taken',
+    'DTI': 'Debt burden',
+    'TERM_MONTHS': 'Term, months',
+    'OVERPAY': 'Markup',
 }
 
 CATEGORICAL = [c for c in cfg.CATEGORICAL if c in CARD.features]
 
-# признак модели -> имя поля формы
+# model feature -> form field name
 FIELD_TO_FORM = {
     'CODE_GENDER': 'gender',
     'NAME_FAMILY_STATUS': 'family_status',
@@ -63,7 +64,7 @@ def options(field):
 
 class Application(BaseModel):
     years_employed: float | None = None
-    n_active_credits: float = 0
+    n_active_credits: int = 0
     current_debt: float | None = None
     years_since_first_credit: float | None = None
     income: float
@@ -78,8 +79,21 @@ class Application(BaseModel):
     income_type: str = 'Working'
 
 
+def as_field(value):
+    """Number for an input field: no trailing .0, empty string for None."""
+    if value is None:
+        return ''
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def form_values(a: Application) -> dict:
+    return {k: as_field(v) for k, v in a.model_dump().items()}
+
+
 def to_row(a: Application) -> dict:
-    """Анкета -> признаки модели. Производные считаются здесь же."""
+    """Form -> model features. Derived values are computed here."""
     row = {
         'CODE_GENDER': a.gender,
         'NAME_FAMILY_STATUS': a.family_status,
@@ -126,7 +140,7 @@ def score(
     goods_price: float = Form(...),
     annuity: float = Form(...),
     years_employed: str = Form(''),
-    n_active_credits: float = Form(0),
+    n_active_credits: int = Form(0),
     current_debt: str = Form(''),
     years_since_first_credit: str = Form(''),
     gender: str = Form('F'),
@@ -160,9 +174,9 @@ def score(
     result['max_lost'] = max((r['lost'] for r in result['reasons']), default=1) or 1
     result['derived'] = [
         text for text in (
-            None if row['DTI'] is None else f"нагрузка {row['DTI']:.1f}%",
-            None if row['TERM_MONTHS'] is None else f"срок {row['TERM_MONTHS']:.0f} мес",
-            None if row['OVERPAY'] is None else f"наценка {row['OVERPAY'] * 100:.1f}%",
+            None if row['DTI'] is None else f"debt burden {row['DTI']:.1f}%",
+            None if row['TERM_MONTHS'] is None else f"term {row['TERM_MONTHS']:.0f} months",
+            None if row['OVERPAY'] is None else f"markup {row['OVERPAY'] * 100:.1f}%",
         ) if text
     ]
 
@@ -173,7 +187,7 @@ def score(
         'field_to_form': FIELD_TO_FORM,
         'meta': CARD.meta,
         'result': result,
-        'form': a.model_dump(),
+        'form': form_values(a),
     })
 
 

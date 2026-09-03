@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Константы пайплайна."""
+"""Pipeline constants."""
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -7,15 +7,15 @@ DATA_DIR = ROOT / 'datasets'
 ARTIFACT_DIR = ROOT / 'artifacts'
 
 RANDOM_STATE = 42
-VALID_SIZE = 0.25      # отложенная выборка, трогается один раз
-CALIB_SIZE = 0.20      # доля остатка под калибратор
+VALID_SIZE = 0.25      # holdout, touched once
+CALIB_SIZE = 0.20      # share of the remainder used for the calibrator
 
-# ----- чистка -----
+# ----- cleaning -----
 SENTINEL_DAYS_EMPLOYED = 365243
 RARE_MIN_FREQ = 0.01
 JUNK_VALUES = {'CODE_GENDER': ['XNA'], 'NAME_FAMILY_STATUS': ['Unknown']}
 
-# ----- признаки -----
+# ----- features -----
 BASE_FEATURES = [
     'CODE_GENDER',
     'NAME_FAMILY_STATUS',
@@ -28,7 +28,7 @@ BASE_FEATURES = [
     'AMT_CREDIT',
     'AMT_GOODS_PRICE',
     'AMT_ANNUITY',
-    # кредитная история: агрегаты bureau.csv, клиент отвечает по памяти
+    # credit history: bureau.csv aggregates, the applicant reports them from memory
     'N_ACTIVE_CREDITS',
     'CURRENT_DEBT',
     'FIRST_CREDIT_DAYS',
@@ -39,41 +39,45 @@ FEATURES = BASE_FEATURES + DERIVED_FEATURES
 CATEGORICAL = ['CODE_GENDER', 'NAME_FAMILY_STATUS', 'FLAG_OWN_REALTY',
                'FLAG_OWN_CAR', 'OCCUPATION_TYPE', 'NAME_INCOME_TYPE']
 
-# Пол запрещён в кредитных решениях (ЕС, ECOA в США). В ноутбуке оставлен ради
-# сопоставимости с прежними замерами; для сервиса переключить на True.
+# Gender is prohibited in credit decisions (EU, ECOA in the US). Kept in the
+# notebook so the measurements stay comparable; switch to True for the service.
 DROP_PROHIBITED = False
 PROHIBITED = ['CODE_GENDER']
 
-# ----- биннинг -----
-BINNING = 'monotonic'      # 'monotonic' либо 'quantile'
-N_BINS = 10                # для 'quantile'
-N_PREBINS = 20             # стартовых корзин для 'monotonic'
-MIN_BIN_SIZE = 0.03        # минимальная доля выборки в корзине
+# ----- binning -----
+BINNING = 'monotonic'      # 'monotonic' or 'quantile'
+N_BINS = 10                # for 'quantile'
+N_PREBINS = 20             # starting bins for 'monotonic'
+MIN_BIN_SIZE = 0.01        # smallest share of the sample a bin may hold
+DISCRETE_MAX_LEVELS = 50   # below this many distinct values, pre-bin on the value grid
 SMOOTH = 0.5
 
-# Тренд ДОЛИ ДЕФОЛТОВ вдоль признака:
-#   'ascending'  больше значение -> выше риск
-#   'descending' больше значение -> ниже риск
+# Trend of the DEFAULT RATE along the feature:
+#   'ascending'  higher value -> higher risk
+#   'descending' higher value -> lower risk
 #
-# Направление задано по смыслу. В данных крупные кредиты и платежи имеют более
-# низкий дефолт, потому что их выдавали более проверенным клиентам; без
-# ограничения модель выучивает обратную зависимость.
+# Directions are set by hand. In the data larger loans and payments show a lower
+# default rate because they were granted to more thoroughly vetted clients;
+# without the constraint the model learns the inverse relationship.
 MONOTONIC_DIRECTION = {
     'AMT_CREDIT': 'ascending',
     'AMT_ANNUITY': 'ascending',
     'AMT_GOODS_PRICE': 'ascending',
     'DTI': 'ascending',
     'OVERPAY': 'ascending',
-    'DAYS_EMPLOYED': 'ascending',      # хранится отрицательным: ближе к нулю = меньше стаж
+    'DAYS_EMPLOYED': 'ascending',      # stored negative: closer to zero = shorter tenure
     'AMT_INCOME_TOTAL': 'descending',
-    'TERM_MONTHS': 'descending',       # длиннее срок -> меньше платёж
+    'TERM_MONTHS': 'descending',       # longer term -> smaller payment
+    'N_ACTIVE_CREDITS': 'ascending',
+    'CURRENT_DEBT': 'ascending',
+    'FIRST_CREDIT_DAYS': 'ascending',  # negative days: closer to zero = shorter history
 }
 DEFAULT_TREND = 'auto_asc_desc'
 
-# ----- экономика -----
-LGD = 0.70                 # допущение: необеспеченный потребкредит, в данных нет
+# ----- economics -----
+LGD = 0.70                 # assumption: unsecured consumer lending, absent from the data
 
-# ----- перевод в баллы -----
-PDO = 20                   # на сколько баллов удваиваются шансы
+# ----- score scaling -----
+PDO = 20                   # points to double the odds
 BASE_SCORE = 600
 BASE_ODDS = 50

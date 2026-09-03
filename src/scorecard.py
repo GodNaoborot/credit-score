@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Скоркарта: обучение, перевод в баллы, сериализация.
+"""Scorecard: fitting, score scaling, serialisation.
 
-Обученная скоркарта целиком помещается в JSON - границы корзин, WOE,
-коэффициенты, калибровка баллов и порог. Инференсу не нужны ни sklearn,
-ни pandas: только арифметика и поиск по границам.
+A fitted scorecard fits entirely into JSON: cut points, WOE, coefficients,
+score scaling and the threshold. Inference needs neither sklearn nor pandas,
+only arithmetic and a lookup over the cut points.
 """
 import json
 import math
@@ -28,13 +28,13 @@ class Scorecard:
         self.factor = cfg.PDO / math.log(2)
         self.offset = cfg.BASE_SCORE - self.factor * math.log(cfg.BASE_ODDS)
 
-    # ---------- инференс ----------
+    # ---------- inference ----------
 
     def woe_of(self, row):
         return {c: binning.transform_value(self.spec[c], row.get(c)) for c in self.features}
 
     def log_odds(self, row):
-        """Лог-шансы дефолта."""
+        """Log-odds of default."""
         woe = self.woe_of(row)
         return self.intercept + sum(self.coef[c] * woe[c] for c in self.features)
 
@@ -42,7 +42,7 @@ class Scorecard:
         return 1.0 / (1.0 + math.exp(-self.log_odds(row)))
 
     def predict_proba(self, row):
-        """Калиброванная вероятность дефолта."""
+        """Calibrated probability of default."""
         return self.calibrate(self.raw_proba(row))
 
     def calibrate(self, p):
@@ -51,7 +51,7 @@ class Scorecard:
         return float(np.interp(p, self.calibrator['x'], self.calibrator['y']))
 
     def points(self, row):
-        """Баллы по признакам. Больше баллов - надёжнее. Сумма даёт общий балл."""
+        """Points per feature. More points means safer. They sum to the total score."""
         woe = self.woe_of(row)
         n = len(self.features)
         base = self.offset / n - self.factor * self.intercept / n
@@ -66,7 +66,7 @@ class Scorecard:
         return values + [rule['missing_woe']]
 
     def max_points(self, feature):
-        """Лучшие достижимые баллы по признаку: база плюс лучшая корзина."""
+        """Best attainable points for a feature: base plus its best bin."""
         n = len(self.features)
         base = self.offset / n - self.factor * self.intercept / n
         best_woe = max(self._all_woe(feature)) if self.coef[feature] < 0 \
@@ -74,17 +74,17 @@ class Scorecard:
         return base - self.factor * self.coef[feature] * best_woe
 
     def reasons(self, row, top=3, relative_to='population'):
-        """Причины отказа: сколько баллов потеряно.
+        """Decline reasons: how many points were lost.
 
-        relative_to='max'        - относительно лучшей корзины признака
-        relative_to='population' - относительно среднего заявителя
+        relative_to='max'        against the feature's best bin
+        relative_to='population' against the typical applicant
 
-        Первая конвенция отвечает на «насколько вы хуже идеала», вторая - на
-        «где вы хуже обычного». Вторая практичнее: по сроку 60% заявителей
-        сидят в худшей корзине, и относительно идеала срок попадает в причины
-        почти всем, ничего не объясняя.
+        The first convention answers "how far below the ideal are you", the
+        second "where are you worse than usual". The second is more useful: 60%
+        of applicants fall into the worst TERM_MONTHS bin, so against the ideal
+        the term shows up as a reason for almost everyone and explains nothing.
 
-        База в разности сокращается, поэтому числа сравнимы между признаками.
+        The base cancels in the difference, so the numbers compare across features.
         """
         pts = self.points(row)
         if relative_to == 'max':
@@ -101,7 +101,7 @@ class Scorecard:
         return lost[:top] if top else lost
 
     def reference_points(self):
-        """Баллы типичного заявителя: средний WOE по обучающей популяции."""
+        """Points of the typical applicant: mean WOE over the training population."""
         mean_woe = self.meta.get('mean_woe', {})
         n = len(self.features)
         base = self.offset / n - self.factor * self.intercept / n
@@ -114,7 +114,7 @@ class Scorecard:
         return {'pd': p, 'score': round(self.score(row)), 'approved': bool(p < thr),
                 'threshold': thr}
 
-    # ---------- сериализация ----------
+    # ---------- serialisation ----------
 
     def to_dict(self):
         return {
@@ -147,12 +147,12 @@ class Scorecard:
 
 
 def approval_threshold(margin, lgd=cfg.LGD):
-    """p* = маржа / (маржа + LGD). Сумма кредита сокращается."""
+    """p* = margin / (margin + LGD). The loan amount cancels out."""
     return margin / (margin + lgd)
 
 
 def estimate_margin(X):
-    """Медианная положительная наценка как прокси валовой маржи."""
+    """Median positive markup as a proxy for gross margin."""
     markup = (X['AMT_CREDIT'] - X['AMT_GOODS_PRICE']) / X['AMT_CREDIT']
     return float(markup[markup > 0].median())
 
@@ -183,7 +183,7 @@ def predict_proba_batch(card, X):
 
 
 def fit_calibrator(card, X_calib, y_calib):
-    """Изотоническая регрессия на предсказаниях по данным, которых модель не видела."""
+    """Isotonic regression over predictions on data the model has not seen."""
     from sklearn.isotonic import IsotonicRegression
 
     p = raw_proba_batch(card, X_calib)

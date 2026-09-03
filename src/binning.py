@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Биннинг и WOE.
+"""Binning and WOE.
 
-Границы подбираются на train, WOE считается по ним же. Результат - обычный
-словарь, поэтому на инференсе нужен только поиск по границам.
+Cut points are chosen on train and WOE is computed over them. The result is a
+plain dict, so inference needs nothing but a lookup over the cut points.
 """
 import numpy as np
 import pandas as pd
@@ -31,6 +31,20 @@ def _quantile_edges(x, n_bins):
     return np.unique(q)[1:-1]
 
 
+def _prebin_edges(x, n_bins):
+    """Starting cut points before merging.
+
+    Quantiles cannot reach the sparse tail of a skewed discrete feature: the
+    95th percentile of the active-credit count is 5 while the tail runs to 32,
+    so every value above 5 would end up in one bin. For features with few
+    distinct values the value grid itself is used instead.
+    """
+    values = np.unique(x[~np.isnan(x)])
+    if len(values) <= cfg.DISCRETE_MAX_LEVELS:
+        return (values[:-1] + values[1:]) / 2
+    return _quantile_edges(x, n_bins)
+
+
 def _bin_stats(x, y, edges):
     idx = np.searchsorted(edges, x, side='right')
     n = np.bincount(idx, minlength=len(edges) + 1).astype(float)
@@ -40,17 +54,17 @@ def _bin_stats(x, y, edges):
 
 
 def _monotone_edges(x, y, direction, n_prebins=None, min_size=None):
-    """Квантильные корзины, слитые до монотонности доли дефолтов.
+    """Quantile bins merged until the default rate becomes monotone.
 
-    direction: 'ascending'  - больше значение, выше доля дефолтов
-               'descending' - ниже
+    direction: 'ascending'  higher value, higher default rate
+               'descending' lower
     """
     n_prebins = n_prebins or cfg.N_PREBINS
     min_size = min_size or cfg.MIN_BIN_SIZE
 
     ok = ~np.isnan(x)
     x, y = x[ok], np.asarray(y)[ok]
-    edges = _quantile_edges(x, n_prebins)
+    edges = _prebin_edges(x, n_prebins)
 
     while len(edges):
         n, rate = _bin_stats(x, y, edges)
@@ -124,7 +138,7 @@ def fit(X, y, features, categorical, method=None):
 
 
 def transform_value(rule, value):
-    """Одно значение -> WOE."""
+    """A single value -> WOE."""
     if value is None or (isinstance(value, float) and np.isnan(value)):
         return rule['missing_woe']
 
