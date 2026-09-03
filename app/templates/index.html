@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Скоринг заявки</title>
+<style>
+  :root {
+    --ink: #14161a; --muted: #6b7280; --line: #e3e5e9;
+    --bg: #fafafa; --card: #ffffff;
+    --ok: #1baf7a; --no: #e34948; --accent: #2a78d6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 16px; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 20px; margin-bottom: 16px;
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input, select {
+    width: 100%; padding: 8px 10px; font: inherit; color: var(--ink);
+    border: 1px solid var(--line); border-radius: 6px; background: #fff;
+  }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button {
+    margin-top: 18px; padding: 10px 22px; font: inherit; font-weight: 600;
+    color: #fff; background: var(--accent); border: 0; border-radius: 6px; cursor: pointer;
+  }
+  .verdict { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+  .verdict b { font-size: 24px; }
+  .ok { color: var(--ok); } .no { color: var(--no); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .bar { height: 6px; background: var(--accent); border-radius: 3px; }
+  .foot { color: var(--muted); font-size: 12px; margin-top: 20px; }
+  .policy {
+    margin-top: 14px; padding: 12px 14px; font-size: 13px;
+    background: #fdf2f2; border: 1px solid #f3d4d4; border-radius: 8px;
+  }
+  .policy ul { margin: 6px 0; padding-left: 20px; }
+  .policy li { margin: 2px 0; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Скоринг кредитной заявки</h1>
+  <div class="sub">
+    WOE-скоркарта, Gini {{ meta.get('metrics', {}).get('gini', '-') }},
+    порог одобрения PD &lt; {{ meta.get('threshold', '-') }}
+    (LGD {{ meta.get('lgd', '-') }}, маржа {{ meta.get('margin', '-') }})
+  </div>
+
+  {% if result %}
+  <div class="card">
+    <div class="verdict">
+      {% if result.approved %}
+        <b class="ok">Одобрено</b>
+      {% else %}
+        <b class="no">Отказано</b>
+      {% endif %}
+      <span>вероятность дефолта <b>{{ '%.1f'|format(result.pd * 100) }}%</b></span>
+      <span>балл <b>{{ result.score }}</b></span>
+      <span class="sub">порог {{ '%.1f'|format(result.threshold * 100) }}%</span>
+      {% if result.refused_by %}
+      <span class="sub">по {{ 'политике' if result.refused_by == 'policy' else 'скорингу' }}</span>
+      {% endif %}
+    </div>
+
+    {% if result.violations %}
+    <div class="policy">
+      <b>Нарушены правила политики</b>
+      <ul>
+        {% for v in result.violations %}<li>{{ v.text }}</li>{% endfor %}
+      </ul>
+      Такие заявки отсекаются до модели: она обучена на выданных кредитах и за
+      пределами этого диапазона не экстраполирует.
+    </div>
+    {% endif %}
+
+    <h2 style="margin-top:18px">Где теряются баллы</h2>
+    <table>
+      <tr><th>признак</th><th style="width:45%">хуже типичного заявителя на</th><th>баллов</th></tr>
+      {% for r in result.reasons %}
+      <tr>
+        <td>{{ r.label }}</td>
+        <td><div class="bar" style="width: {{ (r.lost / result.max_lost * 100)|round }}%"></div></td>
+        <td class="num">{{ '%.1f'|format(r.lost) }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% if result.derived %}
+    <div class="foot">Производные: {{ result.derived | join(', ') }}</div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <form method="post" class="card">
+    <h2>Анкета</h2>
+    <div class="grid">
+      <div>
+        <label>Доход, ₽/мес</label>
+        <input name="income" type="number" step="any" min="1" required
+               value="{{ form.income if form else 180000 }}">
+      </div>
+      <div>
+        <label>Сумма кредита, ₽</label>
+        <input name="credit" type="number" step="any" min="1" required
+               value="{{ form.credit if form else 600000 }}">
+      </div>
+      <div>
+        <label>Цена товара, ₽</label>
+        <input name="goods_price" type="number" step="any" min="1" required
+               value="{{ form.goods_price if form else 540000 }}">
+      </div>
+      <div>
+        <label>Ежемесячный платёж, ₽</label>
+        <input name="annuity" type="number" step="any" min="1" required
+               value="{{ form.annuity if form else 27000 }}">
+      </div>
+      <div>
+        <label>Стаж на текущем месте, лет (пусто - не работаю)</label>
+        <input name="years_employed" type="number" step="any" min="0"
+               value="{{ form.years_employed if form and form.years_employed is not none else 5 }}">
+      </div>
+
+      <div>
+        <label>Активных кредитов сейчас</label>
+        <input name="n_active_credits" type="number" step="1" min="0"
+               value="{{ form.n_active_credits if form else 1 }}">
+      </div>
+      <div>
+        <label>Текущий долг по ним, ₽ (пусто - нет истории)</label>
+        <input name="current_debt" type="number" step="any" min="0"
+               value="{{ form.current_debt if form and form.current_debt is not none else 200000 }}">
+      </div>
+      <div>
+        <label>Первый кредит взят, лет назад (пусто - не брал)</label>
+        <input name="years_since_first_credit" type="number" step="any" min="0"
+               value="{{ form.years_since_first_credit if form and form.years_since_first_credit is not none else 6 }}">
+      </div>
+
+      {% for field in categorical %}
+      {% set key = field_to_form[field] %}
+      <div>
+        <label>{{ labels.get(field, field) }}</label>
+        <select name="{{ key }}">
+          {% for opt in options[field] %}
+          <option value="{{ opt }}" {% if form and form[key] == opt %}selected{% endif %}>{{ opt }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endfor %}
+    </div>
+    <button type="submit">Рассчитать</button>
+  </form>
+
+  <div class="foot">
+    Учебная модель на данных Home Credit Default Risk. Не является кредитным
+    предложением. LGD принята как допущение, в данных отсутствует.
+  </div>
+
+</div>
+</body>
+</html>

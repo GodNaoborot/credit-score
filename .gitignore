@@ -1,0 +1,14 @@
+# данные: 2.5 ГБ, семь файлов свыше лимита GitHub в 100 МБ
+datasets/
+processed/
+
+# артефакт обучения коммитим — 9 КБ, без него сервис не поднимется
+artifacts/*
+!artifacts/scorecard.json
+
+# локальное
+.claude/
+.ipynb_checkpoints/
+__pycache__/
+*.pyc
+.venv/
